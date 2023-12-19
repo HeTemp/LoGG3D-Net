@@ -1,0 +1,151 @@
+import sys
+# print(sys.path)
+sys.path.append('/usr/lib/python3.8/site-packages')
+from scipy.spatial.distance import cdist
+import logging
+import matplotlib.pyplot as plt
+import pickle
+import os
+from torchpack import distributed as dist
+import numpy as np
+import math
+sys.path.append(os.path.join(os.path.dirname(__file__), '../'))
+from models.pipelines.pipeline_utils import *
+from utils.data_loaders.make_dataloader import *
+from utils.misc_utils import *
+from utils.data_loaders.mulran.mulran_dataset import load_poses_from_csv, load_timestamps_csv
+from utils.data_loaders.kitti.kitti_dataset import load_poses_from_txt, load_timestamps
+# from pipelines.LOGG3D import *
+# device = 'cuda:1' 
+from models.pipeline_factory import get_pipeline
+from config.eval_config import get_config_eval
+cfg = get_config_eval()
+
+def read_kf_data(filename):
+    datas = []
+    with open(filename, 'r') as file:
+        i = 0
+        for line in file:
+            kf = []
+            for point in line.split(','):
+                if len(point.split(' ')) >= 3:
+                    x, y, z = map(float, point.split(' '))
+                    kf.append([x, y, z, 1])
+            datas.append(kf)
+    # datas = np.array(datas)
+    return datas
+
+
+def compact(lidar_pcs,model):
+    # input_data = next(iterator)
+    # lidar_pc = input_data[0][0]  # .cpu().detach().numpy()
+    global_descriptors = []
+    for lidar_pc in lidar_pcs:
+        lidar_pc = np.array(lidar_pc,dtype=np.float32)
+        input = make_sparse_tensor(lidar_pc, 0.001) # .to(device)
+        output_desc, output_feats = model(input)  # .squeeze()
+        output_feats = output_feats[0]
+        global_descriptor = output_desc.cpu().detach().numpy()
+        global_descriptor = np.reshape(global_descriptor, (1, -1))
+        global_descriptors.append(global_descriptor)
+    return np.array(global_descriptors)
+
+def record_gd(filename,global_descriptors):
+    with open(filename, 'w') as f:
+        for global_descriptor in global_descriptors:
+            for num in global_descriptor[0]:
+                f.write(str(num) + ' ')
+            f.write('\n')
+
+def read_gd(filename):
+    global_desc = []
+    with open(filename, 'r') as file:
+        for line in file:
+            line = line.strip()
+            global_desc.append([float(num) for num in line.split(' ')])
+    return np.array(global_desc)
+
+def record(save_dir,model_path):
+    # torch.cuda.set_device('cuda:1')
+    model = get_pipeline('LOGG3D')
+    # save_path = os.path.join(os.path.dirname(__file__), '../', 'checkpoints')
+
+    checkpoint = torch.load(model_path, map_location=torch.device('cuda:0'))  #,map_location=device map_location=torch.device('cpu')
+    model.load_state_dict(checkpoint['model_state_dict'])
+    model.eval()
+    pcls_0 = read_kf_data(base_dir + 'r0_key_frame.txt')
+    pcls_1 = read_kf_data(base_dir + 'r1_key_frame.txt')
+    pcls_2 = read_kf_data(base_dir + 'r2_key_frame.txt')
+
+    global_descriptors_0 = compact(pcls_0,model)
+    record_gd(save_dir + 'r0_global.txt', global_descriptors_0)
+    global_descriptors_1 = compact(pcls_1,model)
+    record_gd(save_dir + 'r1_global.txt', global_descriptors_1)
+    global_descriptors_2 = compact(pcls_2,model)
+    record_gd(save_dir + 'r2_global.txt', global_descriptors_2)
+
+def count_dis(save_dir):
+    global_descriptors_0 = read_gd(save_dir + 'r0_global.txt')
+    global_descriptors_1 = read_gd(save_dir + 'r1_global.txt')
+    global_descriptors_2 = read_gd(save_dir + 'r2_global.txt')
+
+    with open(save_dir + 'loggdis_r0r1.txt','w') as f1:
+        for global_descriptor in global_descriptors_0:
+            feat_dists = cdist(global_descriptor.reshape(1,-1), global_descriptors_1.reshape(-1, np.shape(global_descriptors_1)[1]),
+                            metric=cfg.eval_feature_distance).reshape(-1)
+            for dis in feat_dists:
+                f1.write(str(dis) + ' ')
+            f1.write('\n')
+
+    with open(save_dir + 'loggdis_r0r2.txt','w') as f2:
+        for global_descriptor in global_descriptors_0:
+            feat_dists = cdist(global_descriptor.reshape(1,-1), global_descriptors_2.reshape(-1, np.shape(global_descriptors_2)[1]),
+                            metric=cfg.eval_feature_distance).reshape(-1)
+            for dis in feat_dists:
+                f2.write(str(dis) + ' ')
+            f2.write('\n')        
+
+    with open(save_dir + 'loggdis_r1r2.txt','w') as f3:
+        for global_descriptor in global_descriptors_1:
+            feat_dists = cdist(global_descriptor.reshape(1,-1), global_descriptors_2.reshape(-1, np.shape(global_descriptors_2)[1]),
+                            metric=cfg.eval_feature_distance).reshape(-1)
+            for dis in feat_dists:
+                f3.write(str(dis) + ' ')
+            f3.write('\n')
+            
+def test_model(save_dir):
+    model = get_pipeline('LOGG3D')
+    model_path = '/root/work/LoGG3D-Net/training/checkpoints/2023-12-10_10-40-52_run_0'
+    # model_path = '/root/work/LoGG3D-Net/2023_RUN'
+    # model_path = '/root/work/LoGG3D-Net/checkpoints/'
+    checkpoint = torch.load(model_path, map_location=torch.device('cuda:0'))  #,map_location=device map_location=torch.device('cpu')
+    # model.load_state_dict(checkpoint['model_state_dict'])
+    model.eval()
+    pcls_0 = read_kf_data(save_dir + 'r0_key_frame.txt')
+    global_descriptors_0 = compact(pcls_0,model)
+    # global_descriptor = global_descriptors_0[0]
+    # feat_dists = cdist(global_descriptor.reshape(1,-1), global_descriptors_0.reshape(-1, np.shape(global_descriptors_0)[1]),
+    #                         metric=cfg.eval_feature_distance).reshape(-1)
+    for global_descriptor in global_descriptors_0:
+        feat_dists = cdist(global_descriptor.reshape(1,-1), global_descriptors_1.reshape(-1, np.shape(global_descriptors_1)[1]),
+                    metric=cfg.eval_feature_distance).reshape(-1)
+        print(feat_dists)
+    
+    
+if __name__ == '__main__':
+    base_dir = '/root/work/LoGG3D-Net/evaluation/data/'
+    # model_path = '/root/work/LoGG3D-Net/checkpoints/kitti_10cm_loo/2021-09-14_06-43-47_3n24h_Kitti_v10_q29_10s6_262450.pth' #cfg.checkpoint_name
+    # model_path = '/root/work/LoGG3D-Net/checkpoints/mulran_10cm/2021-09-14_08-59-00_3n24h_MulRan_v10_q29_4s_263039.pth'
+    model_path = '/root/work/LoGG3D-Net/training/checkpoints/2023-12-13_00-01-31_run_016'
+    
+    save_dir = base_dir + model_path.split('/')[-1].split('_')[0] + '/'
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+    save_dir += 'epoch-' + model_path.split('/')[-1].split('_')[-1] + '/'
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+        
+    record(save_dir, model_path)
+    count_dis(save_dir)
+    # test_model(save_dir)
+
