@@ -179,11 +179,7 @@ class GeneralTupleDataset(GeneralDataset):
                  random_occlusion=False,
                  random_scale=False,
                  config=None):
-        self.base_dirs = {"kitti" : config.kitti_dir,
-                            "mulran": config.mulran_dir,
-                            "ugv" : config.ugv_dir,
-                            "apollo" : config.apollo_dir,
-                            "bushwalk" : config.bushwalk_dir}
+        self.base_dirs = {"graco":'/root/autodl-tmp/GrAco'}
 
         self.train_pickles = config.train_pickles
         self.positives_per_query = config.positives_per_query
@@ -251,6 +247,9 @@ class GeneralTupleDataset(GeneralDataset):
             list(positive_ids), self.positives_per_query)
         sel_negative_ids = random.sample(
             list(negative_ids), self.negatives_per_query)
+
+        
+        # print("list(negative_ids), self.negatives_per_query:")# ,list(negative_ids), self.negatives_per_query)
         positives, negatives, other_neg = [], [], None
 
         query_th = self.get_pointcloud_tensor(self.base_dirs[anchor_data.dataset], anchor_data.rel_scan_filepath, anchor_data.dataset)
@@ -277,4 +276,3 @@ class GeneralTupleDataset(GeneralDataset):
                     negatives,
                     other_neg_th,
                     meta_info)
-
