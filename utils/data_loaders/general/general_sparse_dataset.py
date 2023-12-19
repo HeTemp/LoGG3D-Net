@@ -10,6 +10,7 @@ from utils.misc_utils import hashM
 from utils.o3d_tools import *
 from utils.data_loaders.general.general_dataset import *
 from scipy.spatial.transform import Rotation as R
+
 class GeneralSparseTupleDataset(GeneralTupleDataset):
     r"""
     Generate tuples (anchor, positives, negatives) using distance
@@ -30,19 +31,21 @@ class GeneralSparseTupleDataset(GeneralTupleDataset):
         self.voxel_size = config.voxel_size
         self.num_points = config.num_points
         self.phase = phase
-        self.downsample = config.downsample
+        # self.downsample = config.downsample
         self.gp_rem = config.gp_rem
         self.gp_vals = config.gp_vals
         self.int_norm = config.mulran_normalize_intensity
 
     def get_pointcloud_sparse_tensor(self,  base_dir, rel_path, dataset, get_pcd=False):
         fname = os.path.join(base_dir, rel_path)
-        if dataset == 'ugv' or dataset == 'apollo' or dataset == 'bushwalk':
-            pcd = o3d.io.read_point_cloud(fname) # TODO: add numpy load, conditional
-            
+        # if dataset == 'ugv' or dataset == 'apollo' or dataset == 'bushwalk':
         if dataset == 'mulran' or dataset == 'kitti':
             xyzr = np.fromfile(fname, dtype=np.float32).reshape(-1, 4)
             pcd = make_open3d_point_cloud(xyzr[:, :3], color=None)
+        else:
+            xyzr = np.fromfile(fname, dtype=np.float32).reshape(-1, 4)
+            pcd = make_open3d_point_cloud(xyzr[:, :3], color=None)
+            # pcd = o3d.io.read_point_cloud(fname) # TODO: add numpy load, conditional
             
         # downpcd = pcd.voxel_down_sample(voxel_size=self.voxel_size)
         xyz = np.asarray(pcd.points)
@@ -71,6 +74,7 @@ class GeneralSparseTupleDataset(GeneralTupleDataset):
 
 
         pc_ = np.round(xyzr[:, :3] / self.voxel_size).astype(np.int32)
+        # print(pc_.shape)
         pc_ -= pc_.min(0, keepdims=1)
         feat_ = xyzr
 
@@ -148,7 +152,7 @@ class GeneralPointSparseTupleDataset(GeneralSparseTupleDataset):
         self.voxel_size = config.voxel_size
         self.num_points = config.num_points
         self.phase = phase
-        self.downsample = config.downsample
+        # self.downsample = config.downsample
         self.gp_rem = config.gp_rem
         self.gp_vals = config.gp_vals
         self.int_norm = config.mulran_normalize_intensity
@@ -218,8 +222,12 @@ class GeneralPointSparseTupleDataset(GeneralSparseTupleDataset):
         pos_samples = min(len(positive_ids), self.positives_per_query)
         sel_positive_ids = random.sample(
             list(positive_ids), pos_samples)
+        # logging.info(f"positive_ids:{len(list(positive_ids))}")
+        assert len(list(negative_ids)) > 0        
         sel_negative_ids = random.sample(
             list(negative_ids), self.negatives_per_query)
+
+
         positives, negatives, other_neg = [], [], None
 
         # print('\n', anchor_data.dataset, idx)
